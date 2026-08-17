@@ -8,8 +8,6 @@ AI 伦理风险识别与管理建议
 数据来源为 data 目录下的资料（见 data_loader.py）。
 """
 import streamlit as st
-
-from data_loader import load_data_if_needed
 from risk_service import RiskService
 
 st.set_page_config(page_title="AI 伦理风险识别与管理建议", page_icon="🛡️")
