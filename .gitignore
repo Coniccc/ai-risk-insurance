@@ -1,1 +1,11 @@
-.streamlit
+# Streamlit 本地配置
+.streamlit/
+
+# Python 运行时
+__pycache__/
+*.pyc
+
+# 本地生成的运行时状态（云端每次启动会自动重建，不应提交）
+chroma_db/
+md5.text
+chat_history/

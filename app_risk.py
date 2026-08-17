@@ -6,18 +6,64 @@ AI 伦理风险识别与管理建议
     1. 识别 AI 伦理风险
     2. 生成风险管理建议
 数据来源为 data 目录下的资料（见 data_loader.py）。
+
+部署说明（Streamlit Cloud）：
+    - 依赖见 requirements.txt
+    - DashScope API Key 通过 App 的 Settings → Secrets 配置：
+        DASHSCOPE_API_KEY = "sk-xxxx"
 """
+import os
+
 import streamlit as st
-from risk_service import RiskService
+
+
+def _ensure_api_key() -> str:
+    """获取 DashScope API Key：本地读环境变量，云端读 st.secrets 并注入环境变量。"""
+    key = os.environ.get("DASHSCOPE_API_KEY", "")
+    if key:
+        return key
+    try:
+        key = st.secrets.get("DASHSCOPE_API_KEY", "") or ""
+    except Exception:
+        key = ""
+    if key:
+        os.environ["DASHSCOPE_API_KEY"] = key
+    return key
+
+
+API_KEY = _ensure_api_key()
+
+from data_loader import load_data_if_needed  # noqa: E402
+from risk_service import RiskService  # noqa: E402
 
 st.set_page_config(page_title="AI 伦理风险识别与管理建议", page_icon="🛡️")
 
 st.title("AI 伦理风险识别与管理建议")
 st.caption("输入企业的相关条款、专利或项目内容，识别其中存在的 AI 伦理风险并给出风险管理建议。")
 
-# 载入数据资料到向量库（md5 去重，重复打开页面不会重复写入）
-if "data_loaded" not in st.session_state:
-    st.session_state["data_loaded"] = True
+
+@st.cache_resource(show_spinner="正在载入知识库…")
+def _init_knowledge_base():
+    """把 data 目录资料嵌入向量库。云端每次启动自动执行一次（运行盘为临时盘）。"""
+    if not API_KEY:
+        return False, "未配置 DASHSCOPE_API_KEY"
+    try:
+        _, msg = load_data_if_needed()
+        return True, msg
+    except Exception as exc:  # noqa: BLE001
+        return False, f"知识库载入失败：{exc}"
+
+
+ok, load_msg = _init_knowledge_base()
+if not ok:
+    st.error(
+        "⚠️ " + load_msg + "\n\n"
+        "部署到 Streamlit Cloud 时，请在 App 的 **Settings → Secrets** 中添加：\n\n"
+        "```toml\nDASHSCOPE_API_KEY = \"sk-xxxx\"\n```\n\n"
+        "本地运行则设置环境变量 `DASHSCOPE_API_KEY` 即可。"
+    )
+    st.stop()
+
 
 if "risk_service" not in st.session_state:
     st.session_state["risk_service"] = RiskService()

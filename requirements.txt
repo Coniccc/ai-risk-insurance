@@ -1,0 +1,8 @@
+# Streamlit Cloud 部署依赖（与本地 nktd 环境版本一致，已端到端验证）
+streamlit==1.57.0
+langchain-core==1.3.2
+langchain-community==0.4.1
+langchain-chroma==1.1.0
+langchain-text-splitters==1.1.2
+chromadb==1.5.8
+dashscope==1.25.17
