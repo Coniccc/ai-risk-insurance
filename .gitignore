@@ -9,3 +9,8 @@ __pycache__/
 chroma_db/
 md5.text
 chat_history/
+
+# 原始数据集（约 134MB，超过 GitHub 单文件 100MB 限制）
+# 提取后的轻量 CSV（china_policy.csv / china_news.csv）会提交，供云端使用
+data/*.xls
+data/*.xlsx

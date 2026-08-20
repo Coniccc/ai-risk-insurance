@@ -1,25 +1,14 @@
-"""
-数据加载服务
-============
-负责把 data 文件夹里的资料解析、编码统一后，批量载入向量数据库，
-供 AI 伦理风险识别 / 风险管理建议两条链路检索使用。
-
-data 文件夹内文件编码不统一：
-    - *.csv / *.py / ERS_*计算说明.txt 为 UTF-8
-    - A思路--*.txt / 指数保险设计方案.txt 为 GBK(GB18030)
-因此统一按「utf-8 优先、失败回退 gb18030」读取。
-"""
 import csv
 import os
 from pathlib import Path
 
 from knowledge_base import KnowledgeBaseService
 
-# 项目根目录（本文件所在目录）
+# 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 
-# 优先载入的纯文本资料（文件名 -> 是否作为独立知识块）
+# 优先载入的纯文本资料
 TXT_FILES = [
     "A思路--风险管理方案部分综述.txt",
     "指数保险设计方案.txt",
