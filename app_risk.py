@@ -222,7 +222,7 @@ def render_policy_tab():
     if df.empty:
         st.warning("暂无政策数据（请确认 data/china_policy.csv 或原始 xls 已就位）。")
         return
-    st.caption(f"共 {len(df)} 条「地区 = 中国」的政策")
+    st.caption(f"共 {len(df)} 条政策")
 
     kw = st.text_input("按标题 / 关键词 / 摘要 / 发布机构筛选", key="policy_filter")
     df = _filter_df(df, kw, ["标题", "关键词", "摘要", "发布机构"])
@@ -247,7 +247,7 @@ def render_news_tab():
     if df.empty:
         st.warning("暂无资讯数据（请确认 data/china_news.csv 或原始 xls 已就位）。")
         return
-    st.caption(f"共 {len(df)} 条「地区 = 中国」的资讯")
+    st.caption(f"共 {len(df)} 条资讯")
 
     kw = st.text_input("按标题 / 关键词 / 摘要 / 来源筛选", key="news_filter")
     df = _filter_df(df, kw, ["标题", "关键词", "摘要", "来源"])
@@ -286,7 +286,7 @@ def render_header():
 
     # 主标题
     st.title("AI 伦理风险识别与管理建议")
-    st.caption("输入企业条款、专利或项目内容识别 AI 伦理风险并给出管理建议,同时提供中国地区相关政策与资讯的浏览。")
+    st.caption("输入企业条款、专利或项目内容识别 AI 伦理风险并给出管理建议，同时提供中国地区相关政策与资讯的浏览。")
 
 
 # ---------------------------------------------------------------------------
