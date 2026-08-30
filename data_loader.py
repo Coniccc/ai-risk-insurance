@@ -1,5 +1,4 @@
 import csv
-import os
 from pathlib import Path
 
 from knowledge_base import KnowledgeBaseService
@@ -8,12 +7,25 @@ from knowledge_base import KnowledgeBaseService
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 
-# 优先载入的纯文本资料
+# 载入知识库的纯文本资料（ERS v3 旧口径说明已移除，由 1.2.0 正式口径资料取代）
 TXT_FILES = [
     "A思路--风险管理方案部分综述.txt",
     "指数保险设计方案.txt",
-    "ERS_v3_4x5_计算说明.txt",
+    "天书.txt",
+    "模型方法与修订说明.txt",
+    "第三章_ERS风险识别模型_1.2.0最终版.txt",
+    "ers描述.txt",
 ]
+
+# ERS 结果表（1.2.0 正式口径）
+ERS_RESULTS_CSV = "ers_results.csv"
+
+# ERS 概念描述文件（用于界面展示）
+ERS_DESC_FILE = "ers描述.txt"
+
+# 四个重点 AI 领域（与 ERS 优先级表一致）
+DOMAINS = ["个性化算法", "机器视觉", "自动驾驶", "服务机器人"]
+GENERIC_DOMAIN = "其他通用领域"
 
 
 def read_text_auto(path):
@@ -27,19 +39,49 @@ def read_text_auto(path):
     return raw.decode("utf-8", errors="replace")
 
 
-def build_ers_table() -> str:
-    """把 ers_v3_results.csv 整理成供识别链路参考的优先级表（Markdown 文本）。"""
-    csv_path = DATA_DIR / "ers_v3_results.csv"
+# ERS 概念说明（在重点领域识别结果上方以深灰小字展示）。
+# 优先读取 data/ers描述.txt 中的权威定义；文件缺失时回退到内置说明。
+_FALLBACK_ERS_DESCRIPTION = (
+    "ERS（Ethical Risk Score）是融合了多源公开证据、专家与公众判断及证据充分度修正，"
+    "对四类 AI 应用领域中的五类核心伦理风险进行综合识别与排序，"
+    "形成的 20 个「领域—风险」组合的相对关注优先级。"
+)
+
+
+def _load_ers_description() -> str:
+    path = DATA_DIR / ERS_DESC_FILE
+    if path.exists():
+        text = read_text_auto(path).strip()
+        if text:
+            return text
+    return _FALLBACK_ERS_DESCRIPTION
+
+
+ERS_DESCRIPTION = _load_ers_description()
+
+
+def build_ers_table(domain: str | None = None) -> str:
+    """把 ers_results.csv 整理成供识别链路参考的优先级表（Markdown 文本）。
+
+    domain 为 None 时返回全部领域；传入某个领域名时仅返回该领域的行。
+    """
+    csv_path = DATA_DIR / ERS_RESULTS_CSV
     if not csv_path.exists():
         return ""
 
     rows = []
     with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
+            if domain and row.get("领域") != domain:
+                continue
             rows.append(row)
 
+    if not rows:
+        return ""
+
+    scope = f"领域：{domain}" if domain else "4 个 AI 重点领域"
     lines = [
-        "AI 伦理风险基准优先级表（ERS，来源 4 个 AI 领域 × 5 类伦理风险）",
+        f"AI 伦理风险基准优先级表（ERS，{scope}）",
         "ERS 是风险关注优先级指数，数值越大表示该「领域-风险」组合越值得优先关注。",
         "",
         "| 排名 | 领域 | 风险维度 | ERS指数化 |",
