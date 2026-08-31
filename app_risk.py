@@ -38,14 +38,15 @@ def _ensure_api_key() -> str:
 
 API_KEY = _ensure_api_key()
 
-from data_loader import (  # noqa: E402
+from data_loader import (
     DOMAINS,
     ERS_DESCRIPTION,
     GENERIC_DOMAIN,
     load_data_if_needed,
 )
-from data_source import load_news_df, load_policy_df  # noqa: E402
-from risk_service import RiskService  # noqa: E402
+from data_source import load_news_df, load_policy_df
+from file_parser import parse_uploaded_file
+from risk_service import RiskService
 
 # 领域选择列表（4 个重点领域 + 其他通用领域）
 DOMAIN_OPTIONS = DOMAINS + [GENERIC_DOMAIN]
@@ -164,32 +165,53 @@ def render_risk_tab():
         placeholder="例如：本公司将使用人工智能算法对海量用户数据进行自动化画像与评分……",
     )
 
+    # 文件上传：解析文件内容作为识别/建议的输入来源
+    uploaded_file = st.file_uploader(
+        "可上传项目文件作为补充（支持 txt / md / pdf / docx / xlsx / xls / csv 等）",
+        type=["txt", "md", "pdf", "docx", "xlsx", "xls", "csv", "json", "log", "py", "yaml", "yml", "html", "htm"],
+        key="risk_uploader",
+    )
+
+    file_text = ""
+    if uploaded_file is not None:
+        try:
+            file_text = parse_uploaded_file(uploaded_file.name, uploaded_file.getvalue())
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"文件解析失败：{exc}")
+        else:
+            st.caption(f"已解析文件「{uploaded_file.name}」，共 {len(file_text)} 字符")
+
     col_identify, col_advice = st.columns(2)
     with col_identify:
         click_identify = st.button("🔍 识别 AI 伦理风险", type="primary", width="stretch")
     with col_advice:
         click_advice = st.button("📋 生成风险管理建议", width="stretch")
 
+    # 合并文本输入与文件内容，作为最终分析对象
+    combined_text = "\n\n".join(
+        p for p in [user_text.strip(), file_text.strip()] if p
+    )
+
     if click_identify:
-        if not user_text.strip():
-            st.warning("请先输入需要识别的企业条款、专利或项目内容。")
+        if not combined_text:
+            st.warning("请先输入内容或上传文件。")
         else:
             with st.spinner("正在识别 AI 伦理风险…"):
-                result = st.session_state["risk_service"].identify_risks(user_text, domain)
+                result = st.session_state["risk_service"].identify_risks(combined_text, domain)
             st.session_state["identified_risks"] = result
             st.session_state["identified_domain"] = domain
             st.session_state["show_identify"] = True
             st.session_state["show_advice"] = False
 
     if click_advice:
-        if not user_text.strip():
-            st.warning("请先输入企业条款、专利或项目内容。")
+        if not combined_text:
+            st.warning("请先输入内容或上传文件。")
         else:
             risks = st.session_state.get("identified_risks", "")
             if not risks:
-                st.info("尚未识别风险，请先点击「识别 AI 伦理风险」；或直接基于原文生成建议。")
+                st.info("尚未识别风险，请先点击「识别 AI 伦理风险」，或直接基于原文生成建议。")
             with st.spinner("正在生成风险管理建议…"):
-                result = st.session_state["risk_service"].advise(user_text, risks, domain)
+                result = st.session_state["risk_service"].advise(combined_text, risks, domain)
             st.session_state["advice_result"] = result
             st.session_state["show_advice"] = True
             st.session_state["show_identify"] = False

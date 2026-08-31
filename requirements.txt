@@ -7,3 +7,6 @@ chromadb==1.5.8
 dashscope==1.25.17
 pandas
 xlrd
+pypdf
+openpyxl
+python-docx
