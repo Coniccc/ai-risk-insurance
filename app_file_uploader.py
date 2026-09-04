@@ -1,7 +1,3 @@
-"""
-基于Streamlit完成Web网页上传服务
-Streamlit特点：当Web页面元素发生变化，代码重新执行一遍
-"""
 import streamlit as st
 from knowledge_base import KnowledgeBaseService
 

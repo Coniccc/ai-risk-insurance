@@ -16,9 +16,3 @@ class VectorStoreService(object):
         """返回向量检索器，方便加入chain"""
         k = k or config.similarity_threshold
         return self.vector_store.as_retriever(search_kwargs={"k": k})
-
-# if __name__ == "__main__":
-#     from langchain_community.embeddings import DashScopeEmbeddings
-#     retriever = VectorStoreService = VectorStoreService(DashScopeEmbeddings(model="text-embedding-v4")).get_retriever()
-#     res = retriever.invoke("我的体重120斤，尺码推荐")
-#     print(res)
