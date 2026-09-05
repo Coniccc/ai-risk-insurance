@@ -7,6 +7,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 
 XLS_PATH = DATA_DIR / "课题1-001 人工智能伦理治理数据库数据集.xls"
+XLSX_PATH = DATA_DIR / "近5年AI与社会伦理综合资讯库（全面版）.xlsx"
+XLSX_POLICY_PATH = DATA_DIR / "政策库.xlsx"
 POLICY_CSV = DATA_DIR / "china_policy.csv"
 NEWS_CSV = DATA_DIR / "china_news.csv"
 
@@ -70,6 +72,84 @@ def _write_csv(rows: list[dict], path: Path, fields: list[str]) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
+def _extract_xlsx_news_rows() -> list[dict]:
+    """从新 xlsx 的“正式资讯库”中提取 region=中国 的行，并映射为 news 列"""
+    if not XLSX_PATH.exists():
+        return []
+    df = pd.read_excel(XLSX_PATH, sheet_name="正式资讯库", dtype=str).fillna("")
+    # 筛选中国地区
+    df = df[df["region"] == "中国"]
+    rows = []
+    for _, row in df.iterrows():
+        rows.append({
+            "标题": row.get("title", ""),
+            "来源": row.get("source", ""),
+            "发布时间": row.get("published_date", ""),
+            "资讯类型": row.get("content_type", ""),      # 直接使用 content_type（如"风险事件"）
+            "关键词": row.get("keywords", ""),
+            "摘要": row.get("summary", ""),
+            "原文地址": row.get("url", ""),
+        })
+    return rows
+
+def _merge_news(new_rows: list[dict]) -> None:
+    """将新行合并到现有 NEWS_CSV，按原文地址去重（保留已有）"""
+    existing = []
+    existing_urls = set()
+    if NEWS_CSV.exists():
+        with NEWS_CSV.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                existing.append(row)
+                existing_urls.add(row.get("原文地址", ""))
+    # 过滤掉已有链接的新行
+    new_rows_filtered = [r for r in new_rows if r["原文地址"] not in existing_urls]
+    if not new_rows_filtered:
+        return
+    all_rows = existing + new_rows_filtered
+    fields = ["标题", "来源", "发布时间", "资讯类型", "关键词", "摘要", "原文地址"]
+    _write_csv(all_rows, NEWS_CSV, fields)
+
+def _extract_xlsx_policy_rows() -> list[dict]:
+    """读取政策库.xlsx的Sheet1，映射为china_policy.csv的字段"""
+    if not XLSX_POLICY_PATH.exists():
+        return []
+    df = pd.read_excel(XLSX_POLICY_PATH, sheet_name="Sheet1", dtype=str).fillna("")
+    rows = []
+    for _, row in df.iterrows():
+        # 若文件名称或官方链接为空则跳过
+        title = row.get("文件/规范名称", "").strip()
+        link = row.get("官方链接", "").strip()
+        if not title or not link:
+            continue
+        rows.append({
+            "标题": title,
+            "发布机构": row.get("发布主体", ""),
+            "发布时间": row.get("时间", ""),          # 可能是"2026"或"2026-05"等格式
+            "政策类别": row.get("类型", ""),
+            "关键词": "",                            # xlsx 无此列，留空
+            "摘要": row.get("核心内容及与AI伦理风险治理关联", ""),
+            "原文链接": link,
+        })
+    return rows
+
+def _merge_policy(new_rows: list[dict]) -> None:
+    """合并新行到现有 POLICY_CSV，按原文链接去重"""
+    existing = []
+    existing_links = set()
+    if POLICY_CSV.exists():
+        with POLICY_CSV.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                existing.append(row)
+                existing_links.add(row.get("原文链接", ""))
+    # 过滤掉已有链接的行
+    filtered = [r for r in new_rows if r["原文链接"] not in existing_links]
+    if not filtered:
+        return
+    all_rows = existing + filtered
+    fields = ["标题", "发布机构", "发布时间", "政策类别", "关键词", "摘要", "原文链接"]
+    _write_csv(all_rows, POLICY_CSV, fields)
 
 def _ensure_cache() -> None:
     """若轻量 CSV 缺失且存在原始 xls，则现场提取生成缓存。"""
@@ -82,6 +162,14 @@ def _ensure_cache() -> None:
     news_rows = _extract_china_rows("资讯", NEWS_COL_MAP)
     _write_csv(policy_rows, POLICY_CSV, list(POLICY_COL_MAP.keys()))
     _write_csv(news_rows, NEWS_CSV, list(NEWS_COL_MAP.keys()))
+
+    xlsx_rows = _extract_xlsx_news_rows()
+    if xlsx_rows:
+        _merge_news(xlsx_rows)
+
+    xlsx_rows1 = _extract_xlsx_policy_rows()
+    if xlsx_rows1:
+        _merge_policy(xlsx_rows1)
 
 
 def _drop_empty_link(df: pd.DataFrame, link_col: str) -> pd.DataFrame:
