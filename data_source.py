@@ -1,4 +1,5 @@
 import csv
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -179,22 +180,49 @@ def _drop_empty_link(df: pd.DataFrame, link_col: str) -> pd.DataFrame:
     return df[df[link_col].astype(str).str.strip() != ""]
 
 
+def _sort_by_time_desc(df: pd.DataFrame, time_col: str = "发布时间") -> pd.DataFrame:
+    """按时间列降序排序（时间越近越靠前）。
+
+    时间列可能包含 YYYY / YYYY-MM / YYYY-MM-DD 等格式，或少量非标准值。
+    用正则提取年、月、日做排序键，无法解析的值排在最后。
+    """
+    if df.empty or time_col not in df.columns:
+        return df
+
+    def _key(v: str) -> tuple:
+        s = str(v).strip()
+        m = re.search(r"(\d{4})[-/.年]?(\d{1,2})?[-/.月]?(\d{1,2})?", s)
+        if not m:
+            return (0, 0, 0)
+        year = int(m.group(1))
+        month = int(m.group(2)) if m.group(2) else 0
+        day = int(m.group(3)) if m.group(3) else 0
+        return (year, month, day)
+
+    # 生成排序键，保留原索引以便回到原顺序
+    keys = df[time_col].map(_key)
+    order = sorted(range(len(df)), key=lambda i: keys.iloc[i], reverse=True)
+    return df.iloc[order].reset_index(drop=True)
+
+
 def load_policy_df() -> pd.DataFrame:
-    """加载「地区 = 中国」的政策数据。"""
+    """加载「地区 = 中国」的政策数据（按发布时间降序）。"""
     _ensure_cache()
     if not POLICY_CSV.exists():
         return pd.DataFrame()
     df = pd.read_csv(POLICY_CSV, encoding="utf-8-sig", dtype=str).fillna("")
-    return _drop_empty_link(df, "原文链接")
+    df = _drop_empty_link(df, "原文链接")
+    return _sort_by_time_desc(df, "发布时间")
 
 
 def load_news_df() -> pd.DataFrame:
-    """加载「地区 = 中国」的资讯数据。"""
+    """加载「地区 = 中国」的资讯数据（按发布时间降序）。"""
     _ensure_cache()
     if not NEWS_CSV.exists():
         return pd.DataFrame()
     df = pd.read_csv(NEWS_CSV, encoding="utf-8-sig", dtype=str).fillna("")
-    return _drop_empty_link(df, "原文地址")
+    df = _drop_empty_link(df, "原文地址")
+    return _sort_by_time_desc(df, "发布时间")
 
 
 def search_policy_news(keyword: str) -> pd.DataFrame:

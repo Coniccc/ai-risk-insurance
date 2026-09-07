@@ -3,13 +3,14 @@ import os
 from pathlib import Path
 
 import streamlit as st
+import pandas as pd
 
 st.set_page_config(page_title="AI 伦理风险识别与管理建议", page_icon="🛡️", layout="wide")
 
 PAGE_SIZE = 20
 
 BASE_DIR = Path(__file__).resolve().parent
-BG_IMAGE = BASE_DIR / "background.jpg"
+BG_IMAGE = BASE_DIR / "background.png"
 
 # 习近平总书记四个「时代之问」
 QUOTE = (
@@ -236,7 +237,17 @@ def render_risk_tab():
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner="正在加载政策数据…")
 def _cached_policy():
-    return load_policy_df()
+    df = load_policy_df()
+    if not df.empty and "发布时间" in df.columns:
+        # 尝试转换为 datetime，转换失败则保留原字符串
+        df["发布时间_排序"] = pd.to_datetime(df["发布时间"], errors="coerce")
+        # 按排序列降序，若全部为 NaT 则按字符串降序
+        if df["发布时间_排序"].notna().any():
+            df = df.sort_values("发布时间_排序", ascending=False)
+        else:
+            df = df.sort_values("发布时间", ascending=False)
+        df = df.drop(columns=["发布时间_排序"])
+    return df
 
 
 def render_policy_tab():
@@ -261,7 +272,15 @@ def render_policy_tab():
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner="正在加载资讯数据…")
 def _cached_news():
-    return load_news_df()
+    df = load_news_df()
+    if not df.empty and "发布时间" in df.columns:
+        df["发布时间_排序"] = pd.to_datetime(df["发布时间"], errors="coerce")
+        if df["发布时间_排序"].notna().any():
+            df = df.sort_values("发布时间_排序", ascending=False)
+        else:
+            df = df.sort_values("发布时间", ascending=False)
+        df = df.drop(columns=["发布时间_排序"])
+    return df
 
 
 def render_news_tab():
@@ -292,19 +311,19 @@ def render_header():
         st.warning("未找到顶部图片 background.jpg（请将其置于项目根目录）。")
 
     # 时代之问（标题区）
-    st.markdown(
-        f"""
-        <div style="text-align:center;padding:0.5rem 0 1.5rem 0;">
-            <p style="font-size:1.35rem;line-height:1.9;color:#1a1a1a;font-weight:500;margin:0;">
-                {html.escape(QUOTE).replace(chr(10), '<br/>')}
-            </p>
-            <p style="font-size:0.95rem;color:#666;margin-top:0.8rem;">
-                {html.escape(QUOTE_ATTRIBUTION)}
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # st.markdown(
+    #     f"""
+    #     <div style="text-align:center;padding:0.5rem 0 1.5rem 0;">
+    #         <p style="font-size:1.35rem;line-height:1.9;color:#1a1a1a;font-weight:500;margin:0;">
+    #             {html.escape(QUOTE).replace(chr(10), '<br/>')}
+    #         </p>
+    #         <p style="font-size:0.95rem;color:#666;margin-top:0.8rem;">
+    #             {html.escape(QUOTE_ATTRIBUTION)}
+    #         </p>
+    #     </div>
+    #     """,
+    #     unsafe_allow_html=True,
+    # )
 
     # 主标题
     st.title("AI 伦理风险识别与管理建议")
