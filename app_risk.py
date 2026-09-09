@@ -10,7 +10,7 @@ st.set_page_config(page_title="AI 伦理风险识别与管理建议", page_icon=
 PAGE_SIZE = 20
 
 BASE_DIR = Path(__file__).resolve().parent
-BG_IMAGE = BASE_DIR / "background.png"
+BG_IMAGE = BASE_DIR / "background.jpg"
 
 # 习近平总书记四个「时代之问」
 QUOTE = (
@@ -326,7 +326,7 @@ def render_header():
     # )
 
     # 主标题
-    st.title("AI 伦理风险识别与管理建议")
+    st.title("AI伦理风险智能评估平台")
     st.caption("输入企业条款、专利或项目内容识别 AI 伦理风险并给出管理建议，同时提供相关政策与资讯的浏览。")
 
 
