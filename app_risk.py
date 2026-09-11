@@ -60,6 +60,119 @@ def _md_escape(s: str) -> str:
     return html.escape(str(s))
 
 
+# 后端仍保存 Pydantic 结构化对象；以下函数仅负责稳定、可读的前端呈现，
+# 不会重新判断风险或修改任何结论字段。
+RISK_TYPE_LABELS = {
+    "autonomy": "决策不自主受控",
+    "privacy": "侵犯隐私",
+    "bias": "加剧社会偏见或歧视",
+    "fairness": "破坏社会公平",
+    "accountability": "权责归属不清或失当",
+}
+RISK_STATUS_LABELS = {
+    "identified": "已识别风险",
+    "verify": "潜在风险/待核验风险",
+    "no_obvious_risk": "当前未发现明显风险",
+}
+RISK_STATUS_DISPLAY_ORDER = {
+    "identified": 0,
+    "verify": 1,
+    "no_obvious_risk": 2,
+}
+
+
+def _format_report_list(items, empty_text: str, indent: int = 0) -> str:
+    """Format structured list fields as Markdown report bullets."""
+    prefix = " " * indent + "- "
+    if not items:
+        return f"{prefix}{_md_escape(empty_text)}"
+    return "\n".join(f"{prefix}{_md_escape(item)}" for item in items)
+
+
+def _display_risk_order(risk_result):
+    """Return a presentation-only ordering without mutating locked results."""
+    def sort_key(risk):
+        status_order = RISK_STATUS_DISPLAY_ORDER[risk.status]
+        # Only identified risks carry a backend-bound ERS score.  Missing or
+        # malformed display values sort after numeric scores without changing
+        # the underlying result.
+        try:
+            score_order = -float(risk.ers_score) if risk.ers_score is not None else float("inf")
+        except (TypeError, ValueError):
+            score_order = float("inf")
+        return status_order, score_order
+
+    return sorted(risk_result.risks, key=sort_key)
+
+
+def _format_risk_result_for_display(risk_result) -> str:
+    lines = ["根据已校验的企业场景信息与参考资料，识别出以下 AI 伦理风险：", "", "------", ""]
+    for index, risk in enumerate(_display_risk_order(risk_result), start=1):
+        type_label = RISK_TYPE_LABELS[risk.risk_type]
+        status_label = RISK_STATUS_LABELS[risk.status]
+        lines.extend(
+            [
+                f"### {index}. 【{status_label}】{type_label}",
+                "",
+                "- **具体表现**：",
+                _format_report_list(
+                    risk.evidence_from_input,
+                    "输入中未提供该风险的直接证据。",
+                    indent=2,
+                ),
+                f"- **成因/判断依据**：{_md_escape(risk.rationale)}",
+            ]
+        )
+        if risk.status == "verify":
+            lines.extend(
+                [
+                    "- **待核验事项**：",
+                    _format_report_list(
+                        risk.verification_needed,
+                        "待补充关键核验信息。",
+                        indent=2,
+                    ),
+                ]
+            )
+        if risk.ers_score is not None:
+            lines.append(f"- **ERS 分数：{_md_escape(risk.ers_score)}**")
+        lines.extend(["", "------", ""])
+    return "\n".join(lines)
+
+
+def _format_advice_result_for_display(advice_result, risk_result) -> str:
+    lines = ["基于已锁定的风险识别结论，现提出以下必要、直接、可执行的风险管理建议：", "", "------", ""]
+    advice_by_type = {advice.risk_type: advice for advice in advice_result.advice}
+    ordered_risks = _display_risk_order(risk_result)
+    for index, risk in enumerate(ordered_risks, start=1):
+        advice = advice_by_type[risk.risk_type]
+        type_label = RISK_TYPE_LABELS[advice.risk_type]
+        status_label = RISK_STATUS_LABELS[advice.status]
+        score_suffix = f"（ERS: {_md_escape(advice.ers_score)}）" if advice.ers_score else ""
+        lines.extend(
+            [
+                f"### **{index}. 针对【{status_label}】{type_label}{score_suffix}**",
+                "",
+                f"**核心问题**：{_md_escape(risk.rationale)}",
+                "",
+                "**风险管理建议**：",
+            ]
+        )
+        lines.extend(
+            [
+                _format_report_list(advice.recommendations, "建议持续维护并监测现有控制。"),
+                "",
+            ]
+        )
+        # if risk.existing_controls:
+        #     controls = "；".join(_md_escape(item) for item in risk.existing_controls)
+        #     lines.append(f"> 注：已识别的相关控制包括：{controls}。建议优先维护、核验或改进，避免重复建设。")
+        # else:
+        #     lines.append("> 注：输入未说明相关控制情况，不代表不存在；建议先核实现有安排后再补充控制措施。")
+        lines.extend(["", "------", ""])
+    return "\n".join(lines)
+
+
 def _render_link_list(items: list[dict], link_key: str) -> None:
     """以带超链接的列表渲染若干条记录。"""
     lis = []
@@ -149,7 +262,7 @@ def render_risk_tab():
     if "risk_service" not in st.session_state:
         st.session_state["risk_service"] = RiskService()
     if "identified_risks" not in st.session_state:
-        st.session_state["identified_risks"] = ""
+        st.session_state["identified_risks"] = None
 
     # 领域选择
     domain = st.radio(
@@ -208,14 +321,15 @@ def render_risk_tab():
         if not combined_text:
             st.warning("请先输入内容或上传文件。")
         else:
-            risks = st.session_state.get("identified_risks", "")
+            risks = st.session_state.get("identified_risks")
             if not risks:
-                st.info("尚未识别风险，请先点击「识别 AI 伦理风险」，或直接基于原文生成建议。")
-            with st.spinner("正在生成风险管理建议…"):
-                result = st.session_state["risk_service"].advise(combined_text, risks, domain)
-            st.session_state["advice_result"] = result
-            st.session_state["show_advice"] = True
-            st.session_state["show_identify"] = False
+                st.info("尚未识别风险，请先点击「识别 AI 伦理风险」。")
+            else:
+                with st.spinner("正在生成风险管理建议…"):
+                    result = st.session_state["risk_service"].advise(risks, domain)
+                st.session_state["advice_result"] = result
+                st.session_state["show_advice"] = True
+                st.session_state["show_identify"] = False
 
     if st.session_state.get("show_identify"):
         st.subheader("🔍 风险识别结果")
@@ -225,11 +339,19 @@ def render_risk_tab():
                 f'<p style="color:#555555;font-size:0.85rem;line-height:1.6;">{html.escape(ERS_DESCRIPTION)}</p>',
                 unsafe_allow_html=True,
             )
-        st.markdown(st.session_state["identified_risks"])
+        identified = st.session_state["identified_risks"]
+        st.markdown(_format_risk_result_for_display(identified))
 
     if st.session_state.get("show_advice"):
         st.subheader("📋 风险管理建议")
-        st.markdown(st.session_state.get("advice_result", ""))
+        advice = st.session_state.get("advice_result")
+        if advice:
+            st.markdown(
+                _format_advice_result_for_display(
+                    advice,
+                    st.session_state["identified_risks"],
+                )
+            )
 
 
 # ---------------------------------------------------------------------------

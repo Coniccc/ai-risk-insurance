@@ -20,6 +20,14 @@ TXT_FILES = [
 # ERS 结果表（1.2.0 正式口径）
 ERS_RESULTS_CSV = "ers_results.csv"
 
+ERS_RISK_TYPE_TO_CSV_NAME = {
+    "autonomy": "自主决策",
+    "privacy": "隐私",
+    "bias": "偏见歧视",
+    "fairness": "公平",
+    "accountability": "责任",
+}
+
 # ERS 概念描述文件（用于界面展示）
 ERS_DESC_FILE = "ers描述.txt"
 
@@ -93,6 +101,36 @@ def build_ers_table(domain: str | None = None) -> str:
             f"| {float(row['ERS_指数化']):.2f} |"
         )
     return "\n".join(lines)
+
+
+def get_ers_score(domain: str, risk_type: str) -> str | None:
+    """Return the authoritative ERS score for one domain/risk pair.
+
+    This is deliberately a precise CSV lookup rather than a prompt-oriented
+    table.  Unsupported domains, unsupported risk types, missing files, and
+    missing rows all return ``None``.
+    """
+    if domain not in DOMAINS:
+        return None
+
+    risk_name = ERS_RISK_TYPE_TO_CSV_NAME.get(risk_type)
+    if risk_name is None:
+        return None
+
+    csv_path = DATA_DIR / ERS_RESULTS_CSV
+    if not csv_path.exists():
+        return None
+
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("领域") == domain and row.get("风险简称") == risk_name:
+                score = row.get("ERS_指数化")
+                if score is None:
+                    return None
+                # Preserve the published value while normalising its display
+                # precision to the existing ERS-table convention.
+                return f"{float(score):.2f}"
+    return None
 
 
 def build_corpus() -> list[tuple[str, str]]:
