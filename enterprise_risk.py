@@ -23,6 +23,7 @@ PATENT_ERS_WEIGHT = 0.7
 WORD_ERS_WEIGHT = 0.3
 
 FOCUS_DOMAINS = tuple(DOMAINS)
+CHINESE_FONT_PATH = Path(__file__).resolve().parent / "assets" / "NotoSansSC-VF.ttf"
 
 
 class EnterpriseRiskValidationError(ValueError):
@@ -285,8 +286,12 @@ def profile_strategy_names(profile: Mapping[str, object] | None) -> set[str]:
 def create_quadrant_figure(profile: Mapping[str, object]):
     """Show only the current enterprise's quadrant and its coordinates."""
     import matplotlib.pyplot as plt
+    from matplotlib.font_manager import FontProperties
 
-    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Noto Sans SC']
+    # Streamlit Cloud's Linux image does not include Windows Chinese fonts.
+    # Bundle an OFL Noto Sans SC font with the project and load it by path so
+    # the generated figure is identical locally and in cloud deployments.
+    chinese_font = FontProperties(fname=str(CHINESE_FONT_PATH)) if CHINESE_FONT_PATH.exists() else None
     plt.rcParams['axes.unicode_minus'] = False
 
     exposure = float(profile["exposure_multiple"])
@@ -320,11 +325,20 @@ def create_quadrant_figure(profile: Mapping[str, object]):
         (exposure, enterprise_ers),
         xytext=(8, 8),
         textcoords="offset points",
+        fontproperties=chinese_font,
     )
-    ax.text(0.5, 0.93, label, transform=ax.transAxes, ha="center", va="center")
-    ax.set_xlabel("暴露倍数")
-    ax.set_ylabel("企业综合 ERS")
-    ax.set_title("企业 AI 伦理风险画像")
+    ax.text(
+        0.5,
+        0.93,
+        label,
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontproperties=chinese_font,
+    )
+    ax.set_xlabel("暴露倍数", fontproperties=chinese_font)
+    ax.set_ylabel("企业综合 ERS", fontproperties=chinese_font)
+    ax.set_title("企业 AI 伦理风险画像", fontproperties=chinese_font)
     ax.grid(alpha=0.18)
     fig.tight_layout()
     return fig
