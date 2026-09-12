@@ -10,3 +10,4 @@ xlrd
 pypdf
 openpyxl
 python-docx
+matplotlib

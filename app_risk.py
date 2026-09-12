@@ -46,6 +46,11 @@ from data_loader import (
     load_data_if_needed,
 )
 from data_source import load_news_df, load_policy_df
+from enterprise_risk import (
+    EnterpriseRiskValidationError,
+    create_quadrant_figure,
+    evaluate_enterprise_risk,
+)
 from file_parser import parse_uploaded_file
 from risk_service import RiskService
 
@@ -158,12 +163,14 @@ def _format_advice_result_for_display(advice_result, risk_result) -> str:
                 "**风险管理建议**：",
             ]
         )
-        lines.extend(
-            [
-                _format_report_list(advice.recommendations, "建议持续维护并监测现有控制。"),
-                "",
-            ]
-        )
+        if advice.recommendations:
+            lines.extend(
+                f"- **【{_md_escape(item.strategy)}】** {_md_escape(item.recommendation)}"
+                for item in advice.recommendations
+            )
+        else:
+            lines.append("- 建议持续维护并监测现有控制。")
+        lines.append("")
         # if risk.existing_controls:
         #     controls = "；".join(_md_escape(item) for item in risk.existing_controls)
         #     lines.append(f"> 注：已识别的相关控制包括：{controls}。建议优先维护、核验或改进，避免重复建设。")
@@ -326,7 +333,11 @@ def render_risk_tab():
                 st.info("尚未识别风险，请先点击「识别 AI 伦理风险」。")
             else:
                 with st.spinner("正在生成风险管理建议…"):
-                    result = st.session_state["risk_service"].advise(risks, domain)
+                    result = st.session_state["risk_service"].advise(
+                        risks,
+                        domain,
+                        enterprise_profile=st.session_state.get("enterprise_risk_profile"),
+                    )
                 st.session_state["advice_result"] = result
                 st.session_state["show_advice"] = True
                 st.session_state["show_identify"] = False
@@ -354,8 +365,76 @@ def render_risk_tab():
             )
 
 
+def render_enterprise_profile_tab():
+    st.subheader("企业 AI 伦理风险画像")
+    st.caption("按论文第四章公式计算暴露倍数、企业综合 ERS 和四象限；第五章策略由象限确定性映射。")
+
+    basic_col, patent_col = st.columns(2)
+    with basic_col:
+        total_patents = st.number_input("企业专利总数", min_value=0, step=1, key="profile_total_patents")
+        annual_report_words = st.number_input("企业年报总词数", min_value=0, step=1, key="profile_annual_report_words")
+        ai_word_frequency = st.number_input("企业年报 AI 关键词总词频", min_value=0, step=1, key="profile_ai_word_frequency")
+    with patent_col:
+        personalized_algorithm_patents = st.number_input("个性化算法相关专利数量", min_value=0, step=1, key="profile_personalized_patents")
+        machine_vision_patents = st.number_input("机器视觉相关专利数量", min_value=0, step=1, key="profile_vision_patents")
+        autonomous_driving_patents = st.number_input("自动驾驶相关专利数量", min_value=0, step=1, key="profile_driving_patents")
+        service_robot_patents = st.number_input("服务机器人相关专利数量", min_value=0, step=1, key="profile_robot_patents")
+
+    if st.button("开始企业风险评估", type="primary", key="evaluate_enterprise_risk"):
+        try:
+            profile = evaluate_enterprise_risk(
+                total_patents=total_patents,
+                personalized_algorithm_patents=personalized_algorithm_patents,
+                machine_vision_patents=machine_vision_patents,
+                autonomous_driving_patents=autonomous_driving_patents,
+                service_robot_patents=service_robot_patents,
+                annual_report_words=annual_report_words,
+                ai_word_frequency=ai_word_frequency,
+            )
+        except EnterpriseRiskValidationError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state["enterprise_risk_profile"] = profile
+            st.success("企业风险画像已生成，并将在风险管理建议中作为锁定上下文使用。")
+
+    profile = st.session_state.get("enterprise_risk_profile")
+    if not profile:
+        st.info("填写基础数据后点击“开始企业风险评估”进行计算。")
+        return
+
+    metric_rows = [
+        ("专利暴露倍数", profile["patent_exposure"]),
+        ("词频暴露倍数", profile["word_exposure"]),
+        ("综合暴露倍数", profile["exposure_multiple"]),
+        ("AI 专利 ERS", profile["patent_ers"]),
+        ("AI 词频 ERS", profile["word_ers"]),
+        ("企业综合 ERS", profile["enterprise_ers"]),
+    ]
+    for row in (metric_rows[:3], metric_rows[3:]):
+        columns = st.columns(3)
+        for column, (label, value) in zip(columns, row):
+            column.metric(label, f"{value:.2f}")
+    st.metric("企业风险象限", profile["quadrant_label"])
+    st.info(profile["explanation"])
+    st.caption(
+        f"判定阈值：暴露倍数 90% 分位数 {profile['exposure_threshold']:.2f}；"
+        f"企业综合 ERS 均值 {profile['ers_threshold']:.2f}。"
+    )
+
+    try:
+        st.pyplot(create_quadrant_figure(profile), width="stretch")
+    except ImportError:
+        st.warning("当前环境未安装 matplotlib，暂无法显示四象限图；计算结果不受影响。")
+
+    st.subheader("推荐风险管理策略")
+    for strategy in profile["strategies"]:
+        st.markdown(
+            f"**【{_md_escape(strategy['name'])}】**\n\n{_md_escape(strategy['description'])}"
+        )
+
+
 # ---------------------------------------------------------------------------
-# 标签页 2：政策栏
+# 标签页 3：政策栏
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner="正在加载政策数据…")
 def _cached_policy():
@@ -457,10 +536,15 @@ def render_header():
 # ---------------------------------------------------------------------------
 render_header()
 
-tab_risk, tab_policy, tab_news = st.tabs(["🛡️ 风险识别与建议", "📜 政策栏", "📰 资讯栏"])
+tab_risk, tab_profile, tab_policy, tab_news = st.tabs(
+    ["🛡️ 风险识别与建议", "📊 企业风险画像", "📜 政策栏", "📰 资讯栏"]
+)
 
 with tab_risk:
     render_risk_tab()
+
+with tab_profile:
+    render_enterprise_profile_tab()
 
 with tab_policy:
     render_policy_tab()

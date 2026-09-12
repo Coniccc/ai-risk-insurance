@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 import config_data as config
 from data_loader import DOMAINS, GENERIC_DOMAIN, get_ers_score
+from enterprise_risk import MANAGEMENT_STRATEGY_NAMES, profile_prompt_context, profile_strategy_names
 from langchain_community.chat_models import ChatTongyi
 from langchain_community.embeddings import DashScopeEmbeddings
 from vector_stores import VectorStoreService
@@ -25,6 +26,7 @@ RISK_STATUSES = {"identified", "verify", "no_obvious_risk"}
 
 RiskType = Literal["autonomy", "privacy", "bias", "fairness", "accountability"]
 RiskStatus = Literal["identified", "verify", "no_obvious_risk"]
+ManagementStrategy = Literal["风险自留", "损失控制", "风险分散", "风险对冲", "风险撤出", "保险转移"]
 
 
 class RiskValidationError(ValueError):
@@ -76,13 +78,23 @@ class RiskIdentificationResult(BaseModel):
         extra = "forbid"
 
 
+class StrategyRecommendation(BaseModel):
+    """One action with a controlled Chapter-5 management-strategy label."""
+
+    strategy: ManagementStrategy
+    recommendation: str
+
+    class Config:
+        extra = "forbid"
+
+
 class ManagementAdviceRecord(BaseModel):
     """Advice for one locked risk; conclusion fields must echo the input."""
 
     risk_type: RiskType
     status: RiskStatus
     ers_score: str | None = None
-    recommendations: list[str] = Field(default_factory=list)
+    recommendations: list[StrategyRecommendation] = Field(default_factory=list)
 
     class Config:
         extra = "forbid"
@@ -126,6 +138,10 @@ def _pick_domain(x: dict) -> str:
 
 def _pick_risks(x: dict) -> str:
     return x["risks"]
+
+
+def _pick_enterprise_profile(x: dict) -> str:
+    return x.get("enterprise_profile", "未完成企业风险画像；不适用企业象限策略约束。")
 
 
 def _is_ers_domain(domain: str) -> bool:
@@ -222,6 +238,7 @@ def bind_ers_scores(risk_result: RiskResult, domain: str) -> RiskResult:
 def validate_management_advice_result(
     advice_result: ManagementAdviceResult,
     locked_risks: RiskResult,
+    enterprise_profile: dict | None = None,
 ) -> ManagementAdviceResult:
     """Reject advice that alters or invents any locked risk conclusion."""
     validate_risk_result(locked_risks)
@@ -235,6 +252,7 @@ def validate_management_advice_result(
     if set(advice_types) != RISK_TYPES or len(set(advice_types)) != len(advice_types):
         raise RiskValidationError("管理建议不得新增、遗漏或重复 risk_type。")
 
+    allowed_strategies = profile_strategy_names(enterprise_profile)
     for item in advice_result.advice:
         locked = locked_by_type[item.risk_type]
         if item.status != locked.status:
@@ -245,6 +263,13 @@ def validate_management_advice_result(
             raise RiskValidationError(
                 f"管理建议不得修改 {item.risk_type} 的 ers_score。"
             )
+        for recommendation in item.recommendations:
+            if recommendation.strategy not in MANAGEMENT_STRATEGY_NAMES:
+                raise RiskValidationError("管理建议使用了非正式的一级风险管理类别。")
+            if recommendation.strategy not in allowed_strategies:
+                raise RiskValidationError(
+                    "企业风险画像已锁定主要策略，管理建议不得擅自改用其他主要策略。"
+                )
     return advice_result
 
 
@@ -323,8 +348,10 @@ class RiskService(object):
 3. 不得把 verify 表述为已经确认发生。verify 的 recommendations 必须先说明需要确认什么、需要取得什么材料、以及什么信息会改变当前判断；仅可附带低成本、可逆的准备性建议。
 4. ers_score 仅是已锁定的背景信息，不能升级治理强度、不能改变 status，也不能用于生成排名、Top 5、median rank 或 robustness。
 5. 对 existing_controls，优先建议 verify、maintain 或 improve；不得重复建议从零建立已经存在的控制。只有输入明确证明控制不存在，或核验后确认不存在时，才可建议 create。
-6. 不得无依据生成数字、事故率、损失金额、保险参数、费率或赔偿比例。每种风险均保留一条 advice 记录；no_obvious_risk 可给出简短的持续监测或维护建议。
-7. 只返回符合格式说明的 JSON，不要 Markdown，不要额外说明或额外字段。
+6. 下方企业风险画像（如有）同样由 Python 锁定。不得重算企业象限、不得将 ERS 高等同于企业实际风险高，也不得自行决定或升级主要风险管理策略。只能使用其中列出的策略作为每项建议的 strategy 标签。
+7. 每条 recommendation 都必须使用六维正式标签之一：风险自留、损失控制、风险分散、风险对冲、风险撤出、保险转移；不得创造新的一级类别。若企业画像存在，strategy 必须是该画像列出的优先策略。对 verify 优先给出“需要核验什么”。
+8. 不得无依据生成数字、事故率、损失金额、保险参数、费率或赔偿比例。每种风险均保留一条 advice 记录；no_obvious_risk 可给出简短的持续监测或维护建议。
+9. 只返回符合格式说明的 JSON，不要 Markdown，不要额外说明或额外字段。
 """
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -335,7 +362,11 @@ class RiskService(object):
                     + hard_rules
                     + "\n【JSON 格式说明】\n{format_instructions}",
                 ),
-                ("human", "【当前领域】{domain}\n\n【已锁定风险结果】\n{risks}"),
+                (
+                    "human",
+                    "【当前领域】{domain}\n\n【企业风险画像与锁定策略】\n{enterprise_profile}"
+                    "\n\n【已锁定风险结果】\n{risks}",
+                ),
             ]
         )
         return (
@@ -345,6 +376,7 @@ class RiskService(object):
                 | retriever
                 | RunnableLambda(lambda docs: _format_docs(docs, [ERS_DOC_SOURCE])),
                 "domain": RunnableLambda(_pick_domain),
+                "enterprise_profile": RunnableLambda(_pick_enterprise_profile),
                 "format_instructions": lambda _: parser.get_format_instructions(),
             }
             | prompt
@@ -363,6 +395,7 @@ class RiskService(object):
         self,
         risk_result: RiskResult,
         domain: str = GENERIC_DOMAIN,
+        enterprise_profile: dict | None = None,
     ) -> ManagementAdviceResult:
         """Return advice verified against the supplied locked risk result.
 
@@ -371,5 +404,11 @@ class RiskService(object):
         """
         validate_risk_result(risk_result)
         chain = self.__get_advice_chain(domain)
-        result = chain.invoke({"risks": _model_json(risk_result), "domain": domain})
-        return validate_management_advice_result(result, risk_result)
+        result = chain.invoke(
+            {
+                "risks": _model_json(risk_result),
+                "domain": domain,
+                "enterprise_profile": profile_prompt_context(enterprise_profile),
+            }
+        )
+        return validate_management_advice_result(result, risk_result, enterprise_profile)

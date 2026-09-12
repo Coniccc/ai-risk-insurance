@@ -1,8 +1,6 @@
 import csv
 from pathlib import Path
 
-from knowledge_base import KnowledgeBaseService
-
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -158,7 +156,9 @@ def load_data_if_needed(force=False):
     返回 (是否执行了载入, 结果摘要字符串)。
     默认通过 md5 去重，已载入过的内容会跳过；force=True 时强制重载。
     """
-    from knowledge_base import get_string_md5, check_md5
+    # Keep CSV/ERS readers usable without starting the RAG stack.  The actual
+    # knowledge-base dependency is only needed when this loading function runs.
+    from knowledge_base import KnowledgeBaseService, check_md5, get_string_md5
 
     service = KnowledgeBaseService()
     corpus = build_corpus()
