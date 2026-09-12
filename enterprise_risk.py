@@ -181,7 +181,7 @@ def calculate_word_ers(word_exposure: float) -> float:
     if MAX_WORD_EXPOSURE <= 0:
         raise EnterpriseRiskValidationError("样本最大词频暴露倍数无效，无法计算 AI 词频 ERS。")
     _, industry_avg_ers = load_ers_statistics()
-    return math.log1p(max(0.0, float(word_exposure))) / math.log1p(MAX_WORD_EXPOSURE) * industry_avg_ers
+    return (math.log1p(max(0.0, float(word_exposure))) / math.log1p(MAX_WORD_EXPOSURE)) * industry_avg_ers
 
 
 def calculate_enterprise_ers(patent_ers: float, word_ers: float) -> float:
