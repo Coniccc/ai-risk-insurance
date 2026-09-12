@@ -4,6 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 import pandas as pd
+import re
 
 st.set_page_config(page_title="AI 伦理风险识别与管理建议", page_icon="🛡️", layout="wide")
 
@@ -206,18 +207,34 @@ def _pagination(total_items: int, key: str) -> tuple[int, int]:
     """渲染「上一页 / 下一页」分页控件，返回 (start, size)。"""
     total_pages = max(1, (total_items + PAGE_SIZE - 1) // PAGE_SIZE)
     page_key = f"{key}_page"
-    if page_key not in st.session_state:
-        st.session_state[page_key] = 1
-    page = int(st.session_state[page_key])
-    page = min(max(1, page), total_pages)
+    st.session_state.setdefault(page_key, 1)
+
+    # 读取并夹紧页码，防止筛选后总数变小时越界
+    page = min(max(1, int(st.session_state[page_key])), total_pages)
+    st.session_state[page_key] = page
+
+    # 回调在脚本重跑之前执行，因此重跑时 page / disabled 都是最新状态
+    def _go_prev():
+        st.session_state[page_key] = max(1, st.session_state[page_key] - 1)
+
+    def _go_next():
+        st.session_state[page_key] = min(total_pages, st.session_state[page_key] + 1)
 
     c1, c2, c3 = st.columns([1, 1, 3])
-    if c1.button("⬅ 上一页", disabled=(page <= 1), key=f"{key}_prev", width="stretch"):
-        page = page - 1
-        st.session_state[page_key] = page
-    if c2.button("下一页 ➡", disabled=(page >= total_pages), key=f"{key}_next", width="stretch"):
-        page = page + 1
-        st.session_state[page_key] = page
+    c1.button(
+        "⬅ 上一页",
+        disabled=(page <= 1),
+        key=f"{key}_prev",
+        width="stretch",
+        on_click=_go_prev,
+    )
+    c2.button(
+        "下一页 ➡",
+        disabled=(page >= total_pages),
+        key=f"{key}_next",
+        width="stretch",
+        on_click=_go_next,
+    )
     c3.markdown(f"第 **{page}** / {total_pages} 页 · 共 {total_items} 条")
 
     start = (page - 1) * PAGE_SIZE
@@ -419,6 +436,7 @@ def render_enterprise_profile_tab():
     st.caption(
         f"判定阈值：暴露倍数 90% 分位数 {profile['exposure_threshold']:.2f}；"
         f"企业综合 ERS 均值 {profile['ers_threshold']:.2f}。"
+        f"注：判定阈值来自于报告中的146家企业数据。"
     )
 
     try:
@@ -431,6 +449,14 @@ def render_enterprise_profile_tab():
         st.markdown(
             f"**【{_md_escape(strategy['name'])}】**\n\n{_md_escape(strategy['description'])}"
         )
+
+    quadrant = profile.get("quadrant", "")
+    if not quadrant:
+        match = re.search(r"Q[1-4]", str(profile.get("quadrant_label", "")))
+        quadrant = match.group(0) if match else ""
+
+    if quadrant == "Q1":
+        st.warning("贵司整体风险偏高，建议对具体业务进行排查。")
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +485,9 @@ def render_policy_tab():
     st.caption(f"共 {len(df)} 条政策")
 
     kw = st.text_input("按标题 / 关键词 / 摘要 / 发布机构筛选", key="policy_filter")
+    if st.session_state.get("policy_last_kw") != kw:
+        st.session_state["policy_page"] = 1
+        st.session_state["policy_last_kw"] = kw
     df = _filter_df(df, kw, ["标题", "关键词", "摘要", "发布机构"])
 
     if df.empty:
@@ -492,6 +521,9 @@ def render_news_tab():
     st.caption(f"共 {len(df)} 条资讯")
 
     kw = st.text_input("按标题 / 关键词 / 摘要 / 来源筛选", key="news_filter")
+    if st.session_state.get("news_last_kw") != kw:
+        st.session_state["news_page"] = 1
+        st.session_state["news_last_kw"] = kw
     df = _filter_df(df, kw, ["标题", "关键词", "摘要", "来源"])
 
     if df.empty:
