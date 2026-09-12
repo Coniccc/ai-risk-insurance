@@ -13,7 +13,7 @@ max_split_char_number = 1000
 similarity_threshold = 2    # 检索返回匹配的文档数量
 
 embedding_model_name = "text-embedding-v4"
-chat_model_name = "qwen3-max"
+chat_model_name = "qwen3-max-2026-01-23"
 
 session_config = {
     "configurable":{
