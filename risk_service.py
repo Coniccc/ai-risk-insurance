@@ -7,11 +7,11 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
+from dashscope import MultiModalConversation
 
 import config_data as config
 from data_loader import DOMAINS, GENERIC_DOMAIN, get_ers_score
 from enterprise_risk import MANAGEMENT_STRATEGY_NAMES, profile_prompt_context, profile_strategy_names
-from langchain_community.chat_models import ChatTongyi
 from langchain_community.embeddings import DashScopeEmbeddings
 from vector_stores import VectorStoreService
 
@@ -278,7 +278,33 @@ class RiskService(object):
         self.vector_service = VectorStoreService(
             embedding=DashScopeEmbeddings(model=config.embedding_model_name)
         )
-        self.chat_model = ChatTongyi(model=config.chat_model_name)
+        self.chat_model = RunnableLambda(self._call_chat_model)
+
+    @staticmethod
+    def _call_chat_model(prompt) -> str:
+        """Call the multimodal endpoint required by qwen4-max for text prompts."""
+        messages = [
+            {
+                "role": "system" if message.type == "system" else "user",
+                "content": [{"text": message.content}],
+            }
+            for message in prompt.to_messages()
+        ]
+        response = MultiModalConversation.call(
+            model=config.chat_model_name,
+            messages=messages,
+            enable_thinking=False,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"模型调用失败：status_code={response.status_code} "
+                f"code={response.get('code')} message={response.get('message')} "
+                f"request_id={response.get('request_id')}"
+            )
+        content = response.output.choices[0].message.content
+        if isinstance(content, str):
+            return content
+        return "".join(part.get("text", "") for part in content)
 
     def __get_identify_chain(self, domain: str):
         """Create a parser-backed risk chain with no ERS table in its prompt."""
