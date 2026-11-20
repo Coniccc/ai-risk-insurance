@@ -1,3 +1,4 @@
+import base64
 import html
 import os
 from pathlib import Path
@@ -542,7 +543,13 @@ def render_news_tab():
 def render_header():
     # 顶部横幅图片
     if BG_IMAGE.exists():
-        st.image(BG_IMAGE.read_bytes(), width="stretch")
+        image_data = base64.b64encode(BG_IMAGE.read_bytes()).decode("ascii")
+        st.markdown(
+            f'<img src="data:image/jpeg;base64,{image_data}" '
+            'alt="AI伦理风险智能评估平台横幅" '
+            'style="display:block;width:100%;height:auto;" />',
+            unsafe_allow_html=True,
+        )
     else:
         st.warning("未找到顶部图片 background.jpg（请将其置于项目根目录）。")
 
