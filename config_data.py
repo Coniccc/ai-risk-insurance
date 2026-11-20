@@ -1,8 +1,14 @@
-md5_path = "./md5.text"
+from pathlib import Path
+
+# The repository once committed a SQLite database and an MD5 manifest without
+# Chroma's segment files. Keep runtime state separate so a fresh deployment
+# rebuilds a complete index instead of trusting that partial snapshot.
+_RUNTIME_DIR = Path(__file__).resolve().parent / ".runtime"
+md5_path = str(_RUNTIME_DIR / "md5.text")
 
 # Chroma
 collection_name = "rag"
-persist_directory = "./chroma_db"
+persist_directory = str(_RUNTIME_DIR / "chroma_db")
 
 # splitter
 chunk_size = 1000

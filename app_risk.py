@@ -280,7 +280,10 @@ def _api_key_error_message() -> str:
 def render_risk_tab():
     ok, load_msg = _init_knowledge_base()
     if not ok:
-        st.error(_api_key_error_message())
+        if not API_KEY:
+            st.error(_api_key_error_message())
+        else:
+            st.error("知识库载入失败，请在 Streamlit Cloud 的 Manage app → Logs 中查看具体错误。")
         return
 
     if "risk_service" not in st.session_state:
@@ -539,7 +542,7 @@ def render_news_tab():
 def render_header():
     # 顶部横幅图片
     if BG_IMAGE.exists():
-        st.image(str(BG_IMAGE), width="stretch")
+        st.image(BG_IMAGE.read_bytes(), width="stretch")
     else:
         st.warning("未找到顶部图片 background.jpg（请将其置于项目根目录）。")
 
