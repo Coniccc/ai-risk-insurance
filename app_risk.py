@@ -1,6 +1,7 @@
 import base64
 import html
 import os
+from io import BytesIO
 from pathlib import Path
 
 import streamlit as st
@@ -65,6 +66,16 @@ DOMAIN_OPTIONS = DOMAINS + [GENERIC_DOMAIN]
 # ---------------------------------------------------------------------------
 def _md_escape(s: str) -> str:
     return html.escape(str(s))
+
+
+def _render_inline_image(image_bytes: bytes, mime_type: str, alt: str) -> None:
+    image_data = base64.b64encode(image_bytes).decode("ascii")
+    st.markdown(
+        f'<img src="data:{mime_type};base64,{image_data}" '
+        f'alt="{html.escape(alt, quote=True)}" '
+        'style="display:block;width:100%;height:auto;" />',
+        unsafe_allow_html=True,
+    )
 
 
 # 后端仍保存 Pydantic 结构化对象；以下函数仅负责稳定、可读的前端呈现，
@@ -444,7 +455,15 @@ def render_enterprise_profile_tab():
     )
 
     try:
-        st.pyplot(create_quadrant_figure(profile), width="stretch")
+        from matplotlib import pyplot as plt
+
+        figure = create_quadrant_figure(profile)
+        try:
+            with BytesIO() as image_buffer:
+                figure.savefig(image_buffer, format="png", dpi=150, bbox_inches="tight")
+                _render_inline_image(image_buffer.getvalue(), "image/png", "企业 AI 伦理风险画像")
+        finally:
+            plt.close(figure)
     except ImportError:
         st.warning("当前环境未安装 matplotlib，暂无法显示四象限图；计算结果不受影响。")
 
@@ -543,13 +562,7 @@ def render_news_tab():
 def render_header():
     # 顶部横幅图片
     if BG_IMAGE.exists():
-        image_data = base64.b64encode(BG_IMAGE.read_bytes()).decode("ascii")
-        st.markdown(
-            f'<img src="data:image/jpeg;base64,{image_data}" '
-            'alt="AI伦理风险智能评估平台横幅" '
-            'style="display:block;width:100%;height:auto;" />',
-            unsafe_allow_html=True,
-        )
+        _render_inline_image(BG_IMAGE.read_bytes(), "image/jpeg", "AI伦理风险智能评估平台横幅")
     else:
         st.warning("未找到顶部图片 background.jpg（请将其置于项目根目录）。")
 
